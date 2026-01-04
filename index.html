@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>3D Endless Runner + Magnet 1m</title>
+
+<style>
+body{margin:0;overflow:hidden;background:#000;font-family:Arial}
+#ui{
+  position:fixed;
+  top:10px;
+  width:100%;
+  text-align:center;
+  color:white;
+  font-size:22px;
+  z-index:10;
+}
+</style>
+</head>
+
+<body>
+<div id="ui">Coins: <span id="coinCount">0</span></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
+<script>
+let coinCount=0, curve=0;
+let speed=0.35, maxSpeed=0.55;
+let magnetActive=false;
+let magnetDuration=0;
+const magnetRange=1; // 1 meter radius now
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87ceeb);
+
+const camera=new THREE.PerspectiveCamera(75,innerWidth/innerHeight,0.1,1000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const sun=new THREE.DirectionalLight(0xffffff,0.9);
+sun.position.set(10,20,10);
+scene.add(sun);
+
+/* ===== PLAYER (3D MAN) ===== */
+const player=new THREE.Group();
+const body=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.45,1.4,16), new THREE.MeshStandardMaterial({color:0x3366ff}));
+body.position.y=1.7; player.add(body);
+const head=new THREE.Mesh(new THREE.SphereGeometry(0.4,16,16), new THREE.MeshStandardMaterial({color:0xffccaa}));
+head.position.y=2.7; player.add(head);
+const legGeo=new THREE.CylinderGeometry(0.15,0.15,1,12);
+const legMat=new THREE.MeshStandardMaterial({color:0x222});
+const leg1=new THREE.Mesh(legGeo,legMat);
+const leg2=new THREE.Mesh(legGeo,legMat);
+leg1.position.set(-0.2,0.8,0); leg2.position.set(0.2,0.8,0);
+player.add(leg1,leg2);
+scene.add(player);
+
+/* ===== CAMERA ===== */
+camera.position.set(0,5,10);
+camera.lookAt(player.position);
+
+/* ===== ROAD + LANE LINES + SIDE TREES ===== */
+const objects=[], ROAD_LEN=40;
+function createRoad(z){
+  const road=new THREE.Mesh(new THREE.BoxGeometry(10,0.5,ROAD_LEN), new THREE.MeshStandardMaterial({color:0x444}));
+  road.position.set(0,0,z); scene.add(road); objects.push(road);
+
+  const centerLine=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.01,ROAD_LEN), new THREE.MeshStandardMaterial({color:0xffffff}));
+  centerLine.position.set(0,0.26,z); scene.add(centerLine); objects.push(centerLine);
+
+  const leftLine=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.01,ROAD_LEN), new THREE.MeshStandardMaterial({color:0xffffff}));
+  leftLine.position.set(-4.5,0.26,z); scene.add(leftLine); objects.push(leftLine);
+  const rightLine=leftLine.clone(); rightLine.position.x=4.5; scene.add(rightLine); objects.push(rightLine);
+
+  // side trees
+  for(let i=0;i<3;i++){
+    const trunk=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.35,2), new THREE.MeshStandardMaterial({color:0x8B4513}));
+    const leaf=new THREE.Mesh(new THREE.SphereGeometry(0.9,16,16), new THREE.MeshStandardMaterial({color:0x228B22}));
+    trunk.position.set(-8,1,z-i*12); leaf.position.set(-8,3,z-i*12);
+    scene.add(trunk,leaf); objects.push(trunk,leaf);
+    const t2=trunk.clone(), l2=leaf.clone();
+    t2.position.x=8; l2.position.x=8; scene.add(t2,l2); objects.push(t2,l2);
+  }
+}
+for(let i=0;i<6;i++) createRoad(-i*ROAD_LEN);
+
+/* ===== COINS ===== */
+const coins=[], lanes=[-3,0,3];
+function createCoin(z){
+  const coin=new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.2,16), new THREE.MeshStandardMaterial({color:0xffd700}));
+  coin.rotation.x=Math.PI/2; coin.position.set(lanes[Math.floor(Math.random()*3)],1,z);
+  scene.add(coin); coins.push(coin);
+}
+for(let i=1;i<=30;i++) createCoin(-i*12);
+
+/* ===== MAGNETS ===== */
+const magnets=[];
+function createMagnet(z){
+  const mag=new THREE.Mesh(new THREE.TorusGeometry(0.5,0.2,16,100), new THREE.MeshStandardMaterial({color:0xff00ff}));
+  mag.rotation.x=Math.PI/2;
+  mag.position.set(lanes[Math.floor(Math.random()*3)],1,z);
+  scene.add(mag); magnets.push(mag);
+}
+for(let i=1;i<=5;i++) createMagnet(-i*50);
+
+/* ===== SWIPE ===== */
+let startX=0;
+addEventListener("touchstart",e=>startX=e.touches[0].clientX);
+addEventListener("touchend",e=>{
+  let dx=e.changedTouches[0].clientX-startX;
+  if(Math.abs(dx)>40){
+    if(dx>0) player.position.x+=3;
+    if(dx<0) player.position.x-=3;
+  }
+});
+
+/* ===== GAME LOOP ===== */
+let legSwing=0;
+function animate(){
+  requestAnimationFrame(animate);
+
+  player.position.z-=speed;
+  camera.position.z=player.position.z+10;
+  player.position.x=Math.max(-3,Math.min(3,player.position.x));
+
+  legSwing+=0.15;
+  leg1.rotation.x=Math.sin(legSwing)*0.6;
+  leg2.rotation.x=Math.sin(legSwing+Math.PI)*0.6;
+
+  // curve visual
+  curve=Math.sin(player.position.z*0.01)*2;
+  objects.forEach(o=>{
+    if(o.geometry.type==="BoxGeometry") o.position.x=curve;
+    else o.position.x=curve+(o.position.x>0?8:-8);
+    if(o.position.z-player.position.z>60) o.position.z-=240;
+  });
+
+  // coins
+  coins.forEach(c=>{
+    c.rotation.z+=0.1;
+
+    // magnet active (1 meter)
+    if(magnetActive){
+      const dx=player.position.x-c.position.x;
+      const dz=player.position.z-c.position.z;
+      const distance=Math.sqrt(dx*dx + dz*dz);
+      if(distance<magnetRange){
+        c.position.x += dx*0.15;
+        c.position.z += dz*0.15;
+      }
+    }
+
+    // collection
+    if(Math.abs(player.position.z-c.position.z)<1 && Math.abs(player.position.x-c.position.x)<1){
+      coinCount++;
+      document.getElementById("coinCount").innerText=coinCount;
+      speed=Math.min(maxSpeed, speed+0.005);
+      c.position.z-=240;
+    }
+  });
+
+  // magnets pickup
+  magnets.forEach((m, idx)=>{
+    if(Math.abs(player.position.z-m.position.z)<1 && Math.abs(player.position.x-m.position.x)<1){
+      magnetActive=true;
+      magnetDuration=300; // frames ~5 sec
+      m.position.z=-1000; // hide picked magnet
+    }
+  });
+
+  if(magnetActive){
+    magnetDuration--;
+    if(magnetDuration<=0) magnetActive=false;
+  }
+
+  renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+  </html>
